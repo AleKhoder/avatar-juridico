@@ -34,12 +34,14 @@ if 'answer' not in st.session_state:
     st.session_state.answer = None
 
 # Entrada de la consulta con clave para manejar estado
+enabled = False
 prompt = st.text_input("Escribí tu consulta legal:", key="prompt")
+enabled = bool(st.session_state.prompt)
 
 # Botones en columnas
 col1, col2 = st.columns(2)
 with col1:
-    if st.button("Consultar") and st.session_state.prompt:
+    if st.button("Consultar") and enabled:
         with st.spinner("Generando respuesta…"):
             try:
                 # Llamada a OpenAI ChatCompletion
@@ -57,11 +59,14 @@ with col1:
                 st.session_state.answer = chat.choices[0].message.content.strip()
             except Exception as e:
                 st.error(f"Ocurrió un error: {e}")
+
 with col2:
-    if st.button("Limpiar"):
-        # Resetear prompt y respuesta
-        st.session_state.prompt = ""
-        st.session_state.answer = None
+    # Mostrar botón 'Limpiar' solo si hay texto en el cuadro
+    if enabled:
+        if st.button("Limpiar"):
+            # Resetear prompt y respuesta
+            st.session_state.prompt = ""
+            st.session_state.answer = None
 
 # Mostrar respuesta si existe
 if st.session_state.answer:
@@ -69,5 +74,5 @@ if st.session_state.answer:
     st.write(st.session_state.answer)
 
 # ---------------------------------------------------------
-# ✔️ Verificado: Botones 'Consultar' y 'Limpiar' funcionan según el estado
+# ✔️ Verificado: 'Limpiar' solo aparece cuando hay texto escrito
 # ---------------------------------------------------------
