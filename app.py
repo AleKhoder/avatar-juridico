@@ -65,38 +65,89 @@ if st.button("Responder") and prompt:
             st.markdown("### Respuesta")
             st.write(answer)
 
-            # 2️⃣ Texto → voz
-            #
-            # En esta versión prescindimos de ElevenLabs. El audio será generado
-            # por el propio avatar de HeyGen en el vídeo, por lo que no
-            # realizamos ninguna llamada externa para la síntesis de voz.
-
-            # 3️⃣ Video del avatar (HeyGen)
-            vid_req = {
-                "avatar_id": AVATAR_ID,
-                "script": {"type": "text", "input": answer}
-            }
-            vid_headers = {
-                "x-api-key": HEYGEN_KEY,
+            # 2️⃣ Texto → voz (ElevenLabs v3 ‑ streaming)
+            tts_headers = {
+                "xi-api-key": ELEVEN_KEY,
                 "Content-Type": "application/json",
             }
-            vid_json = requests.post("https://api.heygen.com/v1/video.generate",
-                                     headers=vid_headers, json=vid_req, timeout=30).json()
-            vid_id = vid_json["data"]["video_id"]
+            tts_payload = {
+                "text": answer,
+                "model_id": "eleven_v3",
+            }
+            tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}"
+            r = requests.post(tts_url, headers=tts_headers, json=tts_payload, timeout=60)
+            r.raise_for_status()
 
-            # Poll de estado
-            status_url = f"https://api.heygen.com/v1/video.status?video_id={vid_id}"
-            start = time.time()
-            status = "processing"
-            while status != "done" and time.time() - start < 90:
-                time.sleep(8)
-                status = requests.get(status_url, headers=vid_headers, timeout=20).json()["data"]["status"]
+            # Guardar MP3 temporal
+            tmp_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.mp3")
+            with open(tmp_path, "wb") as f:
+                f.write(r.content)
+            st.audio(tmp_path)
 
-            if status == "done":
-                vid_url = requests.get(status_url, headers=vid_headers, timeout=20).json()["data"]["video_url"]
-                st.video(vid_url)
+            # 3️⃣ Video del avatar (HeyGen)
+            #
+            # Comprobamos que exista la clave de HeyGen antes de continuar. Si
+            # no está definida, mostramos un error y salimos.
+            if not HEYGEN_KEY:
+                st.error(
+                    "No se encontró la clave de HeyGen (HEYGEN_KEY). Configúrala en tus secrets o variables de entorno."
+                )
             else:
-                st.warning("El video tarda más de lo esperado; refrescá la página en un momento para verlo.")
+                vid_req = {
+                    "avatar_id": AVATAR_ID,
+                    "script": {"type": "text", "input": answer}
+                }
+                vid_headers = {
+                    "x-api-key": HEYGEN_KEY,
+                    "Content-Type": "application/json",
+                }
+                # Solicitar la generación del vídeo
+                vid_resp = requests.post(
+                    "https://api.heygen.com/v1/video.generate",
+                    headers=vid_headers,
+                    json=vid_req,
+                    timeout=30,
+                )
+                try:
+                    vid_resp.raise_for_status()
+                    vid_json = vid_resp.json()
+                except Exception as exc:
+                    st.error(f"Error al generar el video con HeyGen: {exc}")
+                    vid_json = None
+
+                if vid_json and "data" in vid_json and "video_id" in vid_json["data"]:
+                    vid_id = vid_json["data"]["video_id"]
+
+                    # Poll de estado
+                    status_url = f"https://api.heygen.com/v1/video.status?video_id={vid_id}"
+                    start = time.time()
+                    status = "processing"
+                    while status != "done" and time.time() - start < 90:
+                        time.sleep(8)
+                        try:
+                            status_data = requests.get(status_url, headers=vid_headers, timeout=20).json().get("data", {})
+                            status = status_data.get("status", "processing")
+                        except Exception:
+                            status = "error"
+                            break
+
+                    if status == "done":
+                        try:
+                            vid_data = requests.get(status_url, headers=vid_headers, timeout=20).json().get("data", {})
+                            vid_url = vid_data.get("video_url")
+                            if vid_url:
+                                st.video(vid_url)
+                            else:
+                                st.error("No se pudo obtener la URL del video.")
+                        except Exception as exc:
+                            st.error(f"Error al obtener la URL del video: {exc}")
+                    else:
+                        st.warning(
+                            "El video tarda más de lo esperado o falló; refrescá la página en un momento para verlo."
+                        )
+                else:
+                    msg = vid_json.get("message") if isinstance(vid_json, dict) else "Respuesta inesperada de HeyGen"
+                    st.error(f"HeyGen no devolvió un video válido: {msg}")
 
         except Exception as e:
             st.error(f"Ocurrió un error: {e}")
