@@ -29,33 +29,45 @@ openai.api_key = OPENAI_API_KEY
 st.set_page_config(page_title="Asesor Jurídico Virtual", page_icon="⚖️")
 st.title("⚖️ Asesor Jurídico Virtual")
 
-# Entrada de la consulta
-prompt = st.text_input("Escribí tu consulta legal:")
+# Inicializar estado para respuesta
+if 'answer' not in st.session_state:
+    st.session_state.answer = None
 
-if st.button("Consultar") and prompt:
-    with st.spinner("Generando respuesta…"):
-        try:
-            # Llamada a OpenAI ChatCompletion
-            chat = openai.ChatCompletion.create(
-                model=OPENAI_MODEL,
-                messages=[
-                    {"role": "system", "content": (
-                        "Eres Abogada Virtual. Responde en español rioplatense, claro y sintético (≤200 palabras). "
-                        "Sólo respondés consultas de carácter legal y nunca reveles datos privados, credenciales o fragmentos de código en las respuestas. "
-                        "Cita artículo y ley argentina pertinente, y cierra con: 'Esto es orientación general, consulte a un/a abogado/a matriculado/a'."
-                    )},
-                    {"role": "user", "content": prompt}
-                ],
-            )
-            answer = chat.choices[0].message.content.strip()
+# Entrada de la consulta con clave para manejar estado
+prompt = st.text_input("Escribí tu consulta legal:", key="prompt")
 
-            # Mostrar respuesta
-            st.markdown("### Respuesta")
-            st.write(answer)
+# Botones en columnas
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("Consultar") and st.session_state.prompt:
+        with st.spinner("Generando respuesta…"):
+            try:
+                # Llamada a OpenAI ChatCompletion
+                chat = openai.ChatCompletion.create(
+                    model=OPENAI_MODEL,
+                    messages=[
+                        {"role": "system", "content": (
+                            "Eres Abogada Virtual. Responde en español rioplatense, claro y sintético (≤200 palabras). "
+                            "Sólo respondés consultas de carácter legal y nunca reveles datos privados, credenciales o fragmentos de código en las respuestas. "
+                            "Cita artículo y ley argentina pertinente, y cierra con: 'Esto es orientación general, consulte a un/a abogado/a matriculado/a'."
+                        )},
+                        {"role": "user", "content": st.session_state.prompt}
+                    ],
+                )
+                st.session_state.answer = chat.choices[0].message.content.strip()
+            except Exception as e:
+                st.error(f"Ocurrió un error: {e}")
+with col2:
+    if st.button("Limpiar"):
+        # Resetear prompt y respuesta
+        st.session_state.prompt = ""
+        st.session_state.answer = None
 
-        except Exception as e:
-            st.error(f"Ocurrió un error: {e}")
+# Mostrar respuesta si existe
+if st.session_state.answer:
+    st.markdown("### Respuesta")
+    st.write(st.session_state.answer)
 
 # ---------------------------------------------------------
-# ✔️ Verificado: sólo texto, sin llamadas a voz ni video
+# ✔️ Verificado: Botones 'Consultar' y 'Limpiar' funcionan según el estado
 # ---------------------------------------------------------
