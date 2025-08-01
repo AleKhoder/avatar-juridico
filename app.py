@@ -1,98 +1,93 @@
 import os
 import time
+import uuid
+import tempfile
 import requests
 import streamlit as st
 import openai
 from dotenv import load_dotenv
 
-# ------------------------------------------------------------
-# Carga de variables de entorno
-# ------------------------------------------------------------
-# En desarrollo local se leen del archivo .env; en Streamlit Cloud
-# se toman de la sección “Secrets”.
+# ------------------------------------------------------------------
+# Cargar variables de entorno (.env local) o Secrets (Streamlit Cloud)
+# ------------------------------------------------------------------
 load_dotenv()
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY   = os.getenv("OPENAI_API_KEY")
 ELEVEN_KEY       = os.getenv("ELEVEN_KEY")
 HEYGEN_KEY       = os.getenv("HEYGEN_KEY")
 AVATAR_ID        = os.getenv("HEYGEN_AVATAR_ID")
-VOICE_ID         = os.getenv("ELEVEN_VOICE_ID")
-MODEL            = os.getenv("OPENAI_MODEL", "gpt-4o")  # fallback a este modelo
-MAX_WAIT_SECONDS = 90  # tiempo máximo para que HeyGen renderice el video
+VOICE_ID         = os.getenv("ELEVEN_VOICE_ID")  # Mariana – v3
+OPENAI_MODEL     = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+MAX_WAIT_SECONDS = 90
 
-# ------------------------------------------------------------
-# Interfaz de usuario con Streamlit
-# ------------------------------------------------------------
-st.set_page_config(page_title="Asesor Jurídico Virtual", page_icon="⚖️")
-st.title("⚖️ Asesor Jurídico Virtual")
+openai.api_key = OPENAI_API_KEY
 
-question = st.text_input("Escribí tu consulta legal:")
+# ------------------------------------------------------------------
+# Streamlit UI
+# ------------------------------------------------------------------
+st.set_page_config(page_title="Asesor Jurídico Virtual", page_icon="⚖️")
+st.title("⚖️ Asesor Jurídico Virtual")
 
-if st.button("Responder") and question:
-    with st.spinner("Pensando tu respuesta…"):
+query = st.text_input("Escribí tu consulta legal:")
+if st.button("Responder") and query:
+    with st.spinner("Pensando…"):
         try:
-            # ------------------------------------------------
             # 1) Generar respuesta con OpenAI
-            # ------------------------------------------------
             chat = openai.ChatCompletion.create(
-                model=MODEL,
+                model=OPENAI_MODEL,
                 messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Eres Abogada Virtual. Responde en español rioplatense, "
-                            "en \u2264 200 palabras, citando la norma argentina exacta. "
-                            "Finaliza con: 'Esto es orientación general, consulte a un/a abogado/a matriculado/a'."
-                        ),
-                    },
-                    {"role": "user", "content": question},
-                ],
+                    {"role": "system", "content": (
+                        "Eres Abogada Virtual. Responde en español rioplatense, ≤200 palabras, "
+                        "citando la norma argentina exacta y finaliza con: 'Esto es orientación general, "
+                        "consulte a un/a abogado/a matriculado/a'.")},
+                    {"role": "user", "content": query}
+                ]
             )
             answer = chat.choices[0].message.content.strip()
             st.markdown("### Respuesta")
             st.write(answer)
 
-            # ------------------------------------------------
-            # 2) Texto a voz con ElevenLabs
-            # ------------------------------------------------
+            # 2) Texto → voz (ElevenLabs v3 devuelve bytes)
             tts_headers = {
                 "xi-api-key": ELEVEN_KEY,
                 "Content-Type": "application/json",
-                "Accept": "application/json",
             }
             tts_payload = {
                 "text": answer,
-                "model_id": "eleven_multilingual_v2",
+                "model_id": "eleven_v3",
             }
-            tts_url  = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}"
-            tts_json = requests.post(tts_url, headers=tts_headers, json=tts_payload, timeout=30).json()
-            audio_url = tts_json["audio_url"]
+            res = requests.post(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}",
+                headers=tts_headers,
+                json=tts_payload,
+                timeout=45,
+            )
+            res.raise_for_status()
 
-            # ------------------------------------------------
-            # 3) Crear video del avatar con HeyGen
-            # ------------------------------------------------
+            # Guardar MP3 temporal
+            tmp_mp3 = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.mp3")
+            with open(tmp_mp3, "wb") as f:
+                f.write(res.content)
+            st.audio(tmp_mp3)
+
+            # 3) Generar video del avatar (sin source_url)
             video_req = {
                 "avatar_id": AVATAR_ID,
-                "source_url": audio_url,
-                "script": {"type": "text", "input": answer},
+                "script": {"type": "text", "input": answer}
             }
             video_headers = {
                 "x-api-key": HEYGEN_KEY,
                 "Content-Type": "application/json",
             }
-            video_json = requests.post(
+            v_json = requests.post(
                 "https://api.heygen.com/v1/video.generate",
                 headers=video_headers,
                 json=video_req,
                 timeout=30,
             ).json()
+            vid_id = v_json["data"]["video_id"]
+            status_url = f"https://api.heygen.com/v1/video.status?video_id={vid_id}"
 
-            video_id = video_json["data"]["video_id"]
-            status_url = f"https://api.heygen.com/v1/video.status?video_id={video_id}"
-
-            # ------------------------------------------------
-            # 4) Esperar a que termine el render (polling)
-            # ------------------------------------------------
             start = time.time()
             status = "processing"
             while status != "done" and (time.time() - start) < MAX_WAIT_SECONDS:
@@ -100,16 +95,10 @@ if st.button("Responder") and question:
                 status = requests.get(status_url, headers=video_headers, timeout=30).json()["data"]["status"]
 
             if status == "done":
-                video_url = requests.get(status_url, headers=video_headers, timeout=30).json()["data"]["video_url"]
-                st.video(video_url)
+                vid_url = requests.get(status_url, headers=video_headers, timeout=30).json()["data"]["video_url"]
+                st.video(vid_url)
             else:
-                st.error("La generación de video demoró demasiado. Intentalo de nuevo en unos minutos.")
+                st.warning("El video tardó demasiado en generarse; intentá de nuevo más tarde.")
 
-            # ------------------------------------------------
-            # 5) Audio opcional
-            # ------------------------------------------------
-            if st.checkbox("Escuchar respuesta"):
-                st.audio(audio_url)
-
-        except Exception as err:
-            st.error(f"Ocurrió un error: {err}")
+        except Exception as e:
+            st.error(f"Ocurrió un error: {e}")
