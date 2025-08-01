@@ -44,7 +44,12 @@ if st.button("Responder") and prompt:
             st.markdown("### Respuesta")
             st.write(answer)
 
-            # 2️⃣ Texto → voz (ElevenLabs v3 ‑ streaming)
+            # 2️⃣ Texto → voz (ElevenLabs v3)
+            #
+            # Usamos el endpoint sin streaming. Algunas voces o cuentas no
+            # permiten el uso de /stream y devuelven un error 403. El endpoint
+            # sin sufijo /stream devuelve el audio completo en el cuerpo de la
+            # respuesta. Puedes ajustar ``model_id`` según tus necesidades.
             tts_headers = {
                 "xi-api-key": ELEVEN_KEY,
                 "Content-Type": "application/json",
@@ -53,14 +58,15 @@ if st.button("Responder") and prompt:
                 "text": answer,
                 "model_id": "eleven_v3",
             }
-            tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}/stream"
-            r = requests.post(tts_url, headers=tts_headers, json=tts_payload, timeout=60)
-            r.raise_for_status()
+            # Endpoint de ElevenLabs sin streaming
+            tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}"
+            tts_resp = requests.post(tts_url, headers=tts_headers, json=tts_payload, timeout=60)
+            tts_resp.raise_for_status()
 
             # Guardar MP3 temporal
             tmp_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.mp3")
             with open(tmp_path, "wb") as f:
-                f.write(r.content)
+                f.write(tts_resp.content)
             st.audio(tmp_path)
 
             # 3️⃣ Video del avatar (HeyGen)
