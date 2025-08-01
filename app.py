@@ -74,7 +74,7 @@ if st.button("Responder") and prompt:
                 "text": answer,
                 "model_id": "eleven_v3",
             }
-            tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}/stream"
+            tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}"
             r = requests.post(tts_url, headers=tts_headers, json=tts_payload, timeout=60)
             r.raise_for_status()
 
