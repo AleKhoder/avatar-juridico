@@ -11,12 +11,33 @@ from dotenv import load_dotenv
 # Cargar claves desde .env (local) o "Secrets" (Streamlit)
 # ---------------------------------------------------------
 load_dotenv()
-OPENAI_API_KEY   = os.getenv("OPENAI_API_KEY")
-ELEVEN_KEY       = os.getenv("ELEVEN_KEY")
-HEYGEN_KEY       = os.getenv("HEYGEN_KEY")
-VOICE_ID         = os.getenv("ELEVEN_VOICE_ID")   # Mariana – v3
-AVATAR_ID        = os.getenv("HEYGEN_AVATAR_ID")
-OPENAI_MODEL     = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+
+# ---------------------------------------------------------
+# Lectura de claves de configuración
+#
+# En Streamlit Community Cloud las variables definidas en la sección
+# "Secrets" están disponibles vía st.secrets. Para facilitar el uso tanto
+# local (con .env) como en la nube, intentamos leer primero desde el
+# entorno y, si no existe, desde st.secrets. Esto evita que claves
+# definidas en secrets sean ignoradas por os.getenv().
+# ---------------------------------------------------------
+def _get_secret(name: str, default: str = "") -> str:
+    """Devuelve una clave desde el entorno o st.secrets."""
+    value = os.getenv(name)
+    if value:
+        return value
+    # st.secrets podría no existir en ejecución local; usamos getattr
+    try:
+        return st.secrets.get(name, default)
+    except Exception:
+        return default
+
+OPENAI_API_KEY = _get_secret("OPENAI_API_KEY")
+ELEVEN_KEY     = _get_secret("ELEVEN_KEY")
+HEYGEN_KEY     = _get_secret("HEYGEN_KEY")
+VOICE_ID       = _get_secret("ELEVEN_VOICE_ID")   # Mariana – v3 u otra
+AVATAR_ID      = _get_secret("HEYGEN_AVATAR_ID")
+OPENAI_MODEL   = _get_secret("OPENAI_MODEL", "gpt-3.5-turbo")
 
 openai.api_key = OPENAI_API_KEY
 
@@ -44,12 +65,7 @@ if st.button("Responder") and prompt:
             st.markdown("### Respuesta")
             st.write(answer)
 
-            # 2️⃣ Texto → voz (ElevenLabs v3)
-            #
-            # Usamos el endpoint sin streaming. Algunas voces o cuentas no
-            # permiten el uso de /stream y devuelven un error 403. El endpoint
-            # sin sufijo /stream devuelve el audio completo en el cuerpo de la
-            # respuesta. Puedes ajustar ``model_id`` según tus necesidades.
+            # 2️⃣ Texto → voz (ElevenLabs v3 ‑ streaming)
             tts_headers = {
                 "xi-api-key": ELEVEN_KEY,
                 "Content-Type": "application/json",
@@ -58,15 +74,14 @@ if st.button("Responder") and prompt:
                 "text": answer,
                 "model_id": "eleven_v3",
             }
-            # Endpoint de ElevenLabs sin streaming
-            tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}"
-            tts_resp = requests.post(tts_url, headers=tts_headers, json=tts_payload, timeout=60)
-            tts_resp.raise_for_status()
+            tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}/stream"
+            r = requests.post(tts_url, headers=tts_headers, json=tts_payload, timeout=60)
+            r.raise_for_status()
 
             # Guardar MP3 temporal
             tmp_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.mp3")
             with open(tmp_path, "wb") as f:
-                f.write(tts_resp.content)
+                f.write(r.content)
             st.audio(tmp_path)
 
             # 3️⃣ Video del avatar (HeyGen)
