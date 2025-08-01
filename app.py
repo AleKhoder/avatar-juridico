@@ -92,6 +92,3 @@ if st.button("Responder") and prompt:
 
         except Exception as e:
             st.error(f"Ocurrió un error: {e}")
-
-        except Exception as e:
-            st.error(f"Ocurrió un error: {e}")
