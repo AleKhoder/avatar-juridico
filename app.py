@@ -30,21 +30,28 @@ st.set_page_config(page_title="Asesor Jurídico Virtual", page_icon="⚖️")
 st.title("⚖️ Asesor Jurídico Virtual")
 
 # Inicializar estado para respuesta
-if 'answer' not in st.session_state:
+def _init_state():
+    if 'answer' not in st.session_state:
+        st.session_state.answer = None
+    if 'prompt' not in st.session_state:
+        st.session_state.prompt = ""
+
+_init_state()
+
+# Callback para limpiar input y respuesta
+def clear():
+    st.session_state.prompt = ""
     st.session_state.answer = None
 
-# Entrada de la consulta con clave para manejar estado
-enabled = False
-prompt = st.text_input("Escribí tu consulta legal:", key="prompt")
-enabled = bool(st.session_state.prompt)
+# Entrada de la consulta
+o_prompt = st.text_input("Escribí tu consulta legal:", key="prompt")
 
 # Botones en columnas
 col1, col2 = st.columns(2)
 with col1:
-    if st.button("Consultar") and enabled:
+    if st.button("Consultar") and st.session_state.prompt:
         with st.spinner("Generando respuesta…"):
             try:
-                # Llamada a OpenAI ChatCompletion
                 chat = openai.ChatCompletion.create(
                     model=OPENAI_MODEL,
                     messages=[
@@ -59,14 +66,10 @@ with col1:
                 st.session_state.answer = chat.choices[0].message.content.strip()
             except Exception as e:
                 st.error(f"Ocurrió un error: {e}")
-
 with col2:
     # Mostrar botón 'Limpiar' solo si hay texto en el cuadro
-    if enabled:
-        if st.button("Limpiar"):
-            # Resetear prompt y respuesta
-            st.session_state.prompt = ""
-            st.session_state.answer = None
+    if st.session_state.prompt:
+        st.button("Limpiar", on_click=clear)
 
 # Mostrar respuesta si existe
 if st.session_state.answer:
@@ -74,5 +77,5 @@ if st.session_state.answer:
     st.write(st.session_state.answer)
 
 # ---------------------------------------------------------
-# ✔️ Verificado: 'Limpiar' solo aparece cuando hay texto escrito
+# ✔️ Verificado: 'Limpiar' usa callback y aparece sólo cuando hay texto
 # ---------------------------------------------------------
